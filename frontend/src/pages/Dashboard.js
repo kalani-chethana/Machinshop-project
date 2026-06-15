@@ -150,38 +150,10 @@ export default function Dashboard() {
 
         {/* CONTAINER DISPLAY CANVAS */}
         <main className="flex-1 p-8 overflow-y-auto w-full mx-auto space-y-6">
-          
-          {/* QUICK SUMMARY CARDS */}
-          <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-            {[
-              { title: 'Registered Runs', count: jobsData.length, color: isDarkMode ? 'text-white' : 'text-slate-800' },
-              { title: 'Active Workcells', count: machines.filter(m => m.status === 'RUNNING').length, color: 'text-blue-500' },
-              { title: 'Idle Machinery', count: machines.filter(m => m.status === 'IDLE').length, color: 'text-amber-500' },
-              { title: 'Free Hardware', count: machines.filter(m => m.status === 'FREE').length, color: 'text-emerald-500' },
-              { title: 'Active Procedures', count: jobsData.filter(j => j.status === 'RUNNING').length, color: 'text-blue-400' },
-            ].map((card, i) => (
-              <div key={i} className={`p-4 rounded-xl border shadow-xs flex flex-col justify-between ${
-                isDarkMode ? 'bg-[#111c36] border-slate-800' : 'bg-white border-[#dee9e2]'
-              }`}>
-                <span className="text-[11px] font-bold text-slate-400 tracking-tight uppercase">{card.title}</span>
-                <span className={`text-2xl font-bold tracking-tight mt-2 ${card.color}`}>{card.count}</span>
-              </div>
-            ))}
-          </div>
 
           {/* ==================== CANVAS VIEWPORT: WORKCELL HARDWARE DASHBOARD ==================== */}
           {activeTab === 'OVERVIEW' && (
             <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h2 className={`text-lg font-black tracking-tight ${isDarkMode ? 'text-white' : 'text-slate-900'}`}>Hardware Cluster Runtime Control</h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Real-time balancing of active workcell nodes, execution workflows, output matrices, and OEE parameters.</p>
-                </div>
-                <div className="flex items-center gap-2 text-xs font-mono font-medium opacity-80">
-                  <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" /> Live Telemetry Linked
-                </div>
-              </div>
-
               {/* MACHINE MATRIX STATUS DATA TABLE CONTAINER */}
               <div className={`rounded-2xl border shadow-sm overflow-hidden ${
                 isDarkMode ? 'bg-[#111c36] border-slate-800' : 'bg-white border-[#dee9e2]'

@@ -18,17 +18,51 @@ let lc3ReferenceWeight = 0;
 let lc4InvalidLatch = false;
 let lc4ReferenceWeight = 0;
 
-function convertLbStringToKg(rawHardwareValue) {
-  if (!rawHardwareValue) return "0.000";
+// Raw hardware value cleaning function to extract numeric weight from potential noisy input
+function cleanHardwareValue(rawHardwareValue) {
+  if (!rawHardwareValue) return 0;
   const cleanedNumericStr = String(rawHardwareValue).replace(/[a-zA-Z]/g, "").trim();
-  const parsedLb = parseFloat(cleanedNumericStr);
-  if (isNaN(parsedLb)) return "0.000";
-  return (parsedLb * 0.45359237).toFixed(3);
+  const parsedValue = parseFloat(cleanedNumericStr);
+  return isNaN(parsedValue) ? 0 : parsedValue;
 }
 
-async function readLoadCell(lcNumber) {
-  const response = await axios.post(SCALE_URL, { LC: lcNumber, CMD: "GN" }, { headers: { "Content-Type": "application/json" } });
-  return response.data;
+// Hardware reading function that fetches a single reading from the specified load cell and cleans it
+async function fetchSingleReading(lcNumber) {
+  try {
+    const response = await axios.post(SCALE_URL, { LC: lcNumber, CMD: "GN" }, { headers: { "Content-Type": "application/json" } });
+    return cleanHardwareValue(response.data?.res);
+  } catch (err) {
+    return null;
+  }
+}
+
+// Utility function to introduce a delay (used in stabilization engine)
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+  * Stabilization engine that attempts to read a stable weight from the specified load cell by taking multiple samples and checking for consistency within a defined variance threshold.
+ */
+async function readStableLoadCell(lcNumber) {
+  const maxAttempts = 4;      
+  const sampleDelay = 150;    
+  const allowedVariance = 0.003; 
+
+  let lastWeight = await fetchSingleReading(lcNumber);
+  if (lastWeight === null) return 0;
+
+  for (let i = 0; i < maxAttempts; i++) {
+    await delay(sampleDelay);
+    let currentWeight = await fetchSingleReading(lcNumber);
+
+    if (currentWeight === null) continue;
+
+    if (Math.abs(currentWeight - lastWeight) <= allowedVariance) {
+      return currentWeight; 
+    }
+    lastWeight = currentWeight;
+  }
+  
+  return lastWeight; 
 }
 
 app.get("/api/jobs", async (req, res) => {
@@ -44,16 +78,12 @@ app.get("/api/loadcells", async (req, res) => {
   const { jobId } = req.query;
 
   try {
-    const rawLc3Data = await readLoadCell(3);
-    const rawLc4Data = await readLoadCell(4);
-
-    const convertedLc3 = parseFloat(convertLbStringToKg(rawLc3Data?.res));
-    const convertedLc4 = parseFloat(convertLbStringToKg(rawLc4Data?.res));
+    const convertedLc3 = await readStableLoadCell(3);
+    const convertedLc4 = await readStableLoadCell(4);
 
     let lc3PartsCount = 0;
     let lc4PartsCount = 0;
     
-    // Status handles: 'nominal', 'underweight_part_warning', 'bulk_load_warning', 'deviation_detected'
     let lc3Status = "nominal";
     let lc4Status = "nominal";
 
@@ -69,75 +99,50 @@ app.get("/api/loadcells", async (req, res) => {
         const target3 = parseFloat(job.input_weight_one_part);
         const tolerance3 = parseFloat(job.input_tolerance);
         
-        // 1. Reset metrics if scale is empty (Below noise margin threshold)
+        
         if (convertedLc3 <= 0.05) {
           lc3PartsCount = 0;
           lc3Status = "nominal";
-        } else if (target3 > 0) {
-          // Check bulk velocity load errors first
+          lc3InvalidLatch = false;   // FIXED: Reset latch on zero
+          lc3ReferenceWeight = 0;    // FIXED: Reset reference on zero
+        } 
+        else if (target3 > 0) {
           const weightDifference3 = convertedLc3 - prevLc3Weight;
-          // Save stable weight
-          if (
-            !lc3InvalidLatch &&
-            Math.abs(weightDifference3) < 0.002
-          ) {
+          
+          if (!lc3InvalidLatch && Math.abs(weightDifference3) < 0.002) {
             lc3ReferenceWeight = convertedLc3;
           }
 
-          // Detect small added material
-          if (
-            !lc3InvalidLatch &&
-            lc3ReferenceWeight > 0
-          ) {
+          if (!lc3InvalidLatch && lc3ReferenceWeight > 0) {
+            const extraWeight = convertedLc3 - lc3ReferenceWeight;
 
-            const extraWeight =
-              convertedLc3 - lc3ReferenceWeight;
-
-            if (
-              extraWeight >= 0.010 &&
-              extraWeight < (target3 - tolerance3)
-            ) {
-
+            if (extraWeight >= 0.010 && extraWeight < (target3 - tolerance3)) {
               lc3InvalidLatch = true;
             }
           }
+          
           if (lc3InvalidLatch) {
-
-            const remainingExtra =
-              convertedLc3 - lc3ReferenceWeight;
+            const remainingExtra = convertedLc3 - lc3ReferenceWeight;
 
             if (remainingExtra < 0.005) {
-
                 lc3InvalidLatch = false;
                 lc3Status = "nominal";
-
             } else {
-
               lc3Status = "underweight_part_warning";
-
-              lc3PartsCount =
-                Math.round(convertedLc3 / target3);
-
-              if (lc3PartsCount === 0)
-                lc3PartsCount = 1;
+              lc3PartsCount = Math.round(convertedLc3 / target3);
+              if (lc3PartsCount === 0) lc3PartsCount = 1;
             }
-
           }
-
-
           else if (weightDifference3 > (target3 * 1.5)) {
             lc3Status = "bulk_load_warning";
             lc3PartsCount = Math.round(convertedLc3 / target3);
           } else {
-            // Determine piece calculation based on minimum single part weight rules
             const minSinglePartWeight3 = target3 - tolerance3;
 
             if (convertedLc3 < minSinglePartWeight3) {
-              // SCENARIO: Weight on scale is too small to be a valid product item
               lc3PartsCount = 0;
               lc3Status = "underweight_part_warning";
             } else {
-              // Calculate normal pieces on scale
               lc3PartsCount = Math.round(convertedLc3 / target3);
               if (lc3PartsCount === 0) lc3PartsCount = 1;
 
@@ -150,157 +155,67 @@ app.get("/api/loadcells", async (req, res) => {
         }
 
         // ==========================================
-// OUTPUT SCALE PROCESSING MATRIX (LC4)
-// ==========================================
-const target4 = parseFloat(job.output_weight_one_part);
-const tolerance4 = parseFloat(job.output_tolerance);
+        // OUTPUT SCALE PROCESSING MATRIX (LC4)
+        // ==========================================
+        const target4 = parseFloat(job.output_weight_one_part);
+        const tolerance4 = parseFloat(job.output_tolerance);
 
-if (convertedLc4 <= 0.02) {
+        
+        if (convertedLc4 <= 0.05) {
+          lc4PartsCount = 0;
+          lc4Status = "nominal";
+          lc4InvalidLatch = false;   // FIXED: Reset latch on zero
+          lc4ReferenceWeight = 0;    // FIXED: Reset reference on zero
+        } 
+        else if (target4 > 0) {
+          const weightDifference4 = convertedLc4 - prevLc4Weight;
+          
+          if (!lc4InvalidLatch && Math.abs(weightDifference4) < 0.002) {
+            lc4ReferenceWeight = convertedLc4;
+          }
 
-    lc4PartsCount = 0;
-    lc4Status = "nominal";
+          if (!lc4InvalidLatch && lc4ReferenceWeight > 0) {
+            const extraWeight4 = convertedLc4 - lc4ReferenceWeight;
 
-    lc4InvalidLatch = false;
-    lc4ReferenceWeight = 0;
-}
-else if (target4 > 0) {
-
-    const weightDifference4 =
-        convertedLc4 - prevLc4Weight;
-
-    // ----------------------------------
-    // Save stable reference weight
-    // ----------------------------------
-    if (
-        !lc4InvalidLatch &&
-        Math.abs(weightDifference4) < 0.002
-    ) {
-        lc4ReferenceWeight = convertedLc4;
-    }
-
-    // ----------------------------------
-    // Detect invalid added weight
-    // ----------------------------------
-    if (
-        !lc4InvalidLatch &&
-        lc4ReferenceWeight > 0
-    ) {
-
-        const extraWeight4 =
-            convertedLc4 - lc4ReferenceWeight;
-
-        const minValidPartWeight =
-            target4 - tolerance4;
-
-        const maxValidPartWeight =
-            target4 + tolerance4;
-
-        if (extraWeight4 >= 0.010) {
-
-            if (
-                extraWeight4 < minValidPartWeight ||
-                extraWeight4 > maxValidPartWeight
-            ) {
-
-                lc4InvalidLatch = true;
-                lc4Status = "invalid_output_part";
+            if (extraWeight4 >= 0.010 && extraWeight4 < (target4 - tolerance4)) {
+              lc4InvalidLatch = true;
             }
-        }
-    }
+          }
+          
+          if (lc4InvalidLatch) {
+            const remainingExtra4 = convertedLc4 - lc4ReferenceWeight;
 
-    // ----------------------------------
-    // Keep invalid state until removed
-    // ----------------------------------
-    if (lc4InvalidLatch) {
+            if (remainingExtra4 < 0.005) {
+                lc4InvalidLatch = false;
+                lc4Status = "nominal";
+            } else {
+              lc4Status = "underweight_part_warning";
+              lc4PartsCount = Math.round(convertedLc4 / target4);
+              if (lc4PartsCount === 0) lc4PartsCount = 1;
+            }
+          }
+          else if (weightDifference4 > (target4 * 1.5)) {
+            lc4Status = "bulk_load_warning";
+            lc4PartsCount = Math.round(convertedLc4 / target4);
+          } else {
+            const minSinglePartWeight4 = target4 - tolerance4;
 
-        const remainingExtra4 =
-            convertedLc4 - lc4ReferenceWeight;
+            if (convertedLc4 < minSinglePartWeight4) {
+              lc4PartsCount = 0;
+              lc4Status = "underweight_part_warning";
+            } else {
+              lc4PartsCount = Math.round(convertedLc4 / target4);
+              if (lc4PartsCount === 0) lc4PartsCount = 1;
 
-        if (remainingExtra4 < 0.005) {
-
-            lc4InvalidLatch = false;
-            lc4Status = "nominal";
-
-            lc4ReferenceWeight =
-                convertedLc4;
-
-        } else {
-
-            lc4Status =
-                "invalid_output_part";
-
-            lc4PartsCount =
-                Math.round(
-                    convertedLc4 / target4
-                );
-
-            if (lc4PartsCount === 0)
-                lc4PartsCount = 1;
-        }
-    }
-
-    // ----------------------------------
-    // Bulk load detection
-    // ----------------------------------
-    else if (
-        weightDifference4 >
-        (target4 * 1.5)
-    ) {
-
-        lc4Status =
-            "bulk_load_warning";
-
-        lc4PartsCount =
-            Math.round(
-                convertedLc4 / target4
-            );
-    }
-
-    // ----------------------------------
-    // Normal part counting
-    // ----------------------------------
-    else {
-
-        const minSinglePartWeight4 =
-            target4 - tolerance4;
-
-        if (
-            convertedLc4 <
-            minSinglePartWeight4
-        ) {
-
-            lc4PartsCount = 0;
-            lc4Status =
-                "underweight_part_warning";
-
-        } else {
-
-            lc4PartsCount =
-                Math.round(
-                    convertedLc4 / target4
-                );
-
-            if (lc4PartsCount === 0)
-                lc4PartsCount = 1;
-
-            const expectedWeight4 =
-                lc4PartsCount * target4;
-
-            if (
-                convertedLc4 <
-                    (expectedWeight4 - tolerance4) ||
-                convertedLc4 >
-                    (expectedWeight4 + tolerance4)
-            ) {
-
-                lc4Status =
-                    "deviation_detected";
+              const expectedWeight4 = lc4PartsCount * target4;
+              if (convertedLc4 < (expectedWeight4 - tolerance4) || convertedLc4 > (expectedWeight4 + tolerance4)) {
+                lc4Status = "deviation_detected";
+              }
             }
           }
         }
       }
     }
-  }
 
     prevLc3Weight = convertedLc3;
     prevLc4Weight = convertedLc4;

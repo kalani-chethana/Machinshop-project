@@ -8,6 +8,7 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
   
   const isBulkWarning = status === "bulk_load_warning";
   const isUnderweight = status === "underweight_part_warning";
+  const isInvalidOutput = status === "invalid_output_part";
 
   const colorStyles = {
     blue: { text: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20", btn: "bg-blue-600 hover:bg-blue-500" },
@@ -15,8 +16,15 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
   }[colorClass];
 
   let activeBorder = "border-slate-800 hover:border-slate-700/60";
-  if (isBulkWarning) activeBorder = "border-rose-500/60 shadow-rose-950/20 animate-pulse bg-rose-950/10";
-  if (isUnderweight) activeBorder = "border-red-500 border-2 shadow-red-950/40 bg-red-950/20";
+
+if (isBulkWarning)
+  activeBorder = "border-rose-500/60 shadow-rose-950/20 animate-pulse bg-rose-950/10";
+
+if (isUnderweight)
+  activeBorder = "border-red-500 border-2 shadow-red-950/40 bg-red-950/20";
+
+if (isInvalidOutput)
+  activeBorder = "border-orange-500 border-2 shadow-orange-950/40 bg-orange-950/20";
 
   return (
     <div className={`bg-slate-900/60 backdrop-blur-md border rounded-2xl p-6 flex flex-col justify-between shadow-xl transition-all duration-300 ${activeBorder}`}>
@@ -27,8 +35,15 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
             <p className="text-sm text-slate-400 mt-0.5">{subTitle}</p>
           </div>
           <div className={`p-2.5 rounded-xl border ${
-            isUnderweight ? "bg-red-500 text-white border-red-400" :
-            isBulkWarning ? "bg-rose-500/20 text-rose-400 border-rose-500/30" : `${colorStyles.bg} ${colorStyles.text} ${colorStyles.border}`
+            isInvalidOutput ? (
+                <AlertCircle className="w-5 h-5 animate-bounce" />
+              ) : isUnderweight ? (
+                <AlertTriangle className="w-5 h-5 animate-bounce" />
+              ) : isBulkWarning ? (
+                <ShieldAlert className="w-5 h-5" />
+              ) : (
+                <Scale className="w-5 h-5" />
+              )
           }`}>
             {isUnderweight ? <AlertTriangle className="w-5 h-5 animate-bounce" /> : isBulkWarning ? <ShieldAlert className="w-5 h-5" /> : <Scale className="w-5 h-5" />}
           </div>
@@ -36,8 +51,14 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
 
         <div className="my-8 text-center tracking-tight">
           <span className={`text-6xl font-black font-mono transition-colors duration-200 ${
-            isUnderweight ? "text-red-500 font-extrabold" : isBulkWarning ? "text-rose-400" : "text-white"
-          }`}>
+                isInvalidOutput
+                  ? "text-orange-500 font-extrabold"
+                  : isUnderweight
+                  ? "text-red-500 font-extrabold"
+                  : isBulkWarning
+                  ? "text-rose-400"
+                  : "text-white"
+              }`}>
             {value}
           </span>
           <span className="text-lg font-medium text-slate-400 ml-2 font-sans">kg</span>
@@ -60,11 +81,22 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
             }`}>
               <div className="flex items-center gap-2">
                 <span className={`h-1.5 w-1.5 rounded-full ${isUnderweight ? "bg-red-400" : isBulkWarning ? "bg-rose-400" : "bg-emerald-500"}`} />
-                {isUnderweight ? "CRITICAL QC ERROR" : isBulkWarning ? "PROCESS SPEED WARNING" : "SYSTEM STABLE"}
+                {isInvalidOutput
+                  ? "INVALID OUTPUT PART"
+                  : isUnderweight
+                  ? "CRITICAL QC ERROR"
+                  : isBulkWarning
+                  ? "PROCESS SPEED WARNING"
+                  : "SYSTEM STABLE"}
               </div>
               <p className="text-[11px] font-normal mt-0.5 opacity-90">
-                {isUnderweight ? "An invalid part weight was detected! Counter frozen. Remove the bad part to unlock." :
-                 isBulkWarning ? "Bulk load detected! Please load items one-by-one." : "Scale weight matches valid piece distribution values."}
+                {isInvalidOutput
+                  ? "Invalid output material detected. Remove the extra weight to continue."
+                  : isUnderweight
+                  ? "An invalid input part weight was detected! Counter frozen. Remove the bad part to unlock."
+                  : isBulkWarning
+                  ? "Bulk load detected! Please load items one-by-one."
+                  : "Scale weight matches valid piece distribution values."}
               </p>
             </div>
           )}
@@ -75,7 +107,13 @@ const ScaleCard = ({ title, subTitle, value, partsCount, status, lcNumber, onRes
         onClick={() => onReset(lcNumber)}
         disabled={anyResetting}
         className={`w-full py-3 px-4 text-white font-semibold rounded-xl transition-all duration-200 flex items-center justify-center gap-2 shadow-lg disabled:opacity-40 disabled:cursor-not-allowed ${
-          isUnderweight ? "bg-red-700 hover:bg-red-600" : isBulkWarning ? "bg-rose-600 hover:bg-rose-500" : colorStyles.btn
+          isInvalidOutput
+          ? "bg-orange-700 hover:bg-orange-600"
+          : isUnderweight
+          ? "bg-red-700 hover:bg-red-600"
+          : isBulkWarning
+          ? "bg-rose-600 hover:bg-rose-500"
+          : colorStyles.btn
         }`}
       >
         <RefreshCw className={`w-4 h-4 ${isThisResetting ? "animate-spin" : ""}`} />

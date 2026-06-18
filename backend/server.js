@@ -150,87 +150,157 @@ app.get("/api/loadcells", async (req, res) => {
         }
 
         // ==========================================
-        // OUTPUT SCALE PROCESSING MATRIX (LC4)
-        // ==========================================
-        const target4 = parseFloat(job.output_weight_one_part);
-        const tolerance4 = parseFloat(job.output_tolerance);
-        
-        if (convertedLc4 <= 0.02) {
-          lc4PartsCount = 0;
-          lc4Status = "nominal";
-        } else if (target4 > 0) {
-          const weightDifference4 = convertedLc4 - prevLc4Weight;
+// OUTPUT SCALE PROCESSING MATRIX (LC4)
+// ==========================================
+const target4 = parseFloat(job.output_weight_one_part);
+const tolerance4 = parseFloat(job.output_tolerance);
 
-          // Save stable output weight
-          if (
-            !lc4InvalidLatch &&
-            Math.abs(weightDifference4) < 0.002
-          ) {
-            lc4ReferenceWeight = convertedLc4;
-          }
+if (convertedLc4 <= 0.02) {
 
-          // Detect invalid added output material
-          if (
-            !lc4InvalidLatch &&
-            lc4ReferenceWeight > 0
-          ) {
+    lc4PartsCount = 0;
+    lc4Status = "nominal";
 
-            const extraWeight4 =
-              convertedLc4 - lc4ReferenceWeight;
+    lc4InvalidLatch = false;
+    lc4ReferenceWeight = 0;
+}
+else if (target4 > 0) {
+
+    const weightDifference4 =
+        convertedLc4 - prevLc4Weight;
+
+    // ----------------------------------
+    // Save stable reference weight
+    // ----------------------------------
+    if (
+        !lc4InvalidLatch &&
+        Math.abs(weightDifference4) < 0.002
+    ) {
+        lc4ReferenceWeight = convertedLc4;
+    }
+
+    // ----------------------------------
+    // Detect invalid added weight
+    // ----------------------------------
+    if (
+        !lc4InvalidLatch &&
+        lc4ReferenceWeight > 0
+    ) {
+
+        const extraWeight4 =
+            convertedLc4 - lc4ReferenceWeight;
+
+        const minValidPartWeight =
+            target4 - tolerance4;
+
+        const maxValidPartWeight =
+            target4 + tolerance4;
+
+        if (extraWeight4 >= 0.010) {
 
             if (
-              extraWeight4 >= 0.010 &&
-              extraWeight4 < (target4 - tolerance4)
+                extraWeight4 < minValidPartWeight ||
+                extraWeight4 > maxValidPartWeight
             ) {
-              lc4InvalidLatch = true;
+
+                lc4InvalidLatch = true;
+                lc4Status = "invalid_output_part";
             }
-          }
-          
-          if (lc4InvalidLatch) {
+        }
+    }
 
-            const remainingExtra4 =
-              convertedLc4 - lc4ReferenceWeight;
+    // ----------------------------------
+    // Keep invalid state until removed
+    // ----------------------------------
+    if (lc4InvalidLatch) {
 
-            if (remainingExtra4 < 0.005) {
+        const remainingExtra4 =
+            convertedLc4 - lc4ReferenceWeight;
 
-              lc4InvalidLatch = false;
-              lc4Status = "nominal";
+        if (remainingExtra4 < 0.005) {
 
-            } else {
+            lc4InvalidLatch = false;
+            lc4Status = "nominal";
 
-              lc4Status = "invalid_output_part";
+            lc4ReferenceWeight =
+                convertedLc4;
 
-              lc4PartsCount =
-                Math.round(convertedLc4 / target4);
+        } else {
 
-              if (lc4PartsCount === 0)
+            lc4Status =
+                "invalid_output_part";
+
+            lc4PartsCount =
+                Math.round(
+                    convertedLc4 / target4
+                );
+
+            if (lc4PartsCount === 0)
                 lc4PartsCount = 1;
-            }
+        }
+    }
 
-          }
+    // ----------------------------------
+    // Bulk load detection
+    // ----------------------------------
+    else if (
+        weightDifference4 >
+        (target4 * 1.5)
+    ) {
 
-          else if (weightDifference4 > (target4 * 1.5)) {
-            lc4Status = "bulk_load_warning";
-            lc4PartsCount = Math.round(convertedLc4 / target4);
-          } else {
-            const minSinglePartWeight4 = target4 - tolerance4;
+        lc4Status =
+            "bulk_load_warning";
 
-            if (convertedLc4 < minSinglePartWeight4) {
-              lc4PartsCount = 0;
-              lc4Status = "underweight_part_warning";
-            } else {
-              lc4PartsCount = Math.round(convertedLc4 / target4);
-              if (lc4PartsCount === 0) lc4PartsCount = 1;
+        lc4PartsCount =
+            Math.round(
+                convertedLc4 / target4
+            );
+    }
 
-              const expectedWeight4 = lc4PartsCount * target4;
-              if (convertedLc4 < (expectedWeight4 - tolerance4) || convertedLc4 > (expectedWeight4 + tolerance4)) {
-                lc4Status = "deviation_detected";
-              }
+    // ----------------------------------
+    // Normal part counting
+    // ----------------------------------
+    else {
+
+        const minSinglePartWeight4 =
+            target4 - tolerance4;
+
+        if (
+            convertedLc4 <
+            minSinglePartWeight4
+        ) {
+
+            lc4PartsCount = 0;
+            lc4Status =
+                "underweight_part_warning";
+
+        } else {
+
+            lc4PartsCount =
+                Math.round(
+                    convertedLc4 / target4
+                );
+
+            if (lc4PartsCount === 0)
+                lc4PartsCount = 1;
+
+            const expectedWeight4 =
+                lc4PartsCount * target4;
+
+            if (
+                convertedLc4 <
+                    (expectedWeight4 - tolerance4) ||
+                convertedLc4 >
+                    (expectedWeight4 + tolerance4)
+            ) {
+
+                lc4Status =
+                    "deviation_detected";
             }
           }
         }
       }
     }
+  }
 
     prevLc3Weight = convertedLc3;
     prevLc4Weight = convertedLc4;

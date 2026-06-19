@@ -99,12 +99,11 @@ app.get("/api/loadcells", async (req, res) => {
         const target3 = parseFloat(job.input_weight_one_part);
         const tolerance3 = parseFloat(job.input_tolerance);
         
-        
         if (convertedLc3 <= 0.05) {
           lc3PartsCount = 0;
           lc3Status = "nominal";
-          lc3InvalidLatch = false;   // FIXED: Reset latch on zero
-          lc3ReferenceWeight = 0;    // FIXED: Reset reference on zero
+          lc3InvalidLatch = false;   
+          lc3ReferenceWeight = 0;    
         } 
         else if (target3 > 0) {
           const weightDifference3 = convertedLc3 - prevLc3Weight;
@@ -160,20 +159,27 @@ app.get("/api/loadcells", async (req, res) => {
         const target4 = parseFloat(job.output_weight_one_part);
         const tolerance4 = parseFloat(job.output_tolerance);
 
-        
         if (convertedLc4 <= 0.05) {
           lc4PartsCount = 0;
           lc4Status = "nominal";
-          lc4InvalidLatch = false;   // FIXED: Reset latch on zero
-          lc4ReferenceWeight = 0;    // FIXED: Reset reference on zero
+          lc4InvalidLatch = false;   
+          lc4ReferenceWeight = 0;    
         } 
         else if (target4 > 0) {
           const weightDifference4 = convertedLc4 - prevLc4Weight;
           
+          // 1. කලින් සේව් කරගත් ස්ටේබල් වේට් එකක් නැත්නම් වත්මන් බර reference එක කරගන්නවා
           if (!lc4InvalidLatch && Math.abs(weightDifference4) < 0.002) {
             lc4ReferenceWeight = convertedLc4;
           }
 
+          // 2. අලුතෙන් එකතු වුණු බර තනි කෑල්ලක උපරිම බරට වඩා වැඩි නම් (එකපාර කෑලි 2ක් දාලා නම්) Latch එක True කරයි.
+          if (!lc4InvalidLatch && weightDifference4 > (target4 + tolerance4)) {
+            lc4InvalidLatch = true;
+            lc4Status = "bulk_load_warning";
+          }
+
+          // 3. Underweight කෑල්ලක් එකතු වුණොත් පැරණි ලොජික් එකෙන්ම Latch එක True කරයි.
           if (!lc4InvalidLatch && lc4ReferenceWeight > 0) {
             const extraWeight4 = convertedLc4 - lc4ReferenceWeight;
 
@@ -182,14 +188,21 @@ app.get("/api/loadcells", async (req, res) => {
             }
           }
           
+          // Latch එක True වෙලා තියෙන තාක් සිස්ටම් එක Invalid ස්ටේටස් එකක් පෙන්වයි.
           if (lc4InvalidLatch) {
             const remainingExtra4 = convertedLc4 - lc4ReferenceWeight;
 
+            // වැරදීමකින් තියපු බර නැවත අයින් කර ගත්තොත් විතරක් reset වේ.
             if (remainingExtra4 < 0.005) {
                 lc4InvalidLatch = false;
                 lc4Status = "nominal";
             } else {
-              lc4Status = "underweight_part_warning";
+              // එකපාර කෑලි 2ක් දමා ඇත්නම් bulk_load_warning ද, නැතහොත් underweight_part_warning ද ලබාදෙයි.
+              if (weightDifference4 > (target4 + tolerance4) || lc4Status === "bulk_load_warning") {
+                lc4Status = "bulk_load_warning";
+              } else {
+                lc4Status = "underweight_part_warning";
+              }
               lc4PartsCount = Math.round(convertedLc4 / target4);
               if (lc4PartsCount === 0) lc4PartsCount = 1;
             }
@@ -204,6 +217,7 @@ app.get("/api/loadcells", async (req, res) => {
               lc4PartsCount = 0;
               lc4Status = "underweight_part_warning";
             } else {
+              // මෙතනින් එකින් එක (one by one) නිවැරදිව තබන කෑලි ටික පිළිවෙලින් එකතු වී ගණනය වේ.
               lc4PartsCount = Math.round(convertedLc4 / target4);
               if (lc4PartsCount === 0) lc4PartsCount = 1;
 

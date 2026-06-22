@@ -91,7 +91,7 @@ app.get("/api/loadcells", async (req, res) => {
         const job = rows[0];
 
         // ==========================================
-        // INPUT SCALE PROCESSING MATRIX (LC3) - PERFECT BULK DIFFERENCE LOGIC
+        // INPUT SCALE PROCESSING MATRIX (LC3) - UPDATED WITH CRITICAL QC ERROR
         // ==========================================
         const target3 = parseFloat(job.input_weight_one_part);
         const tolerance3 = parseFloat(job.input_tolerance);
@@ -105,28 +105,25 @@ app.get("/api/loadcells", async (req, res) => {
         else if (target3 > 0) {
           const weightDifference3 = convertedLc3 - prevLc3Weight;
           
-          // Remaining stable weight reference update logic (if the weight difference is negligible, update the reference weight)
+          // Remaining stable weight reference update logic
           if (!lc3InvalidLatch && Math.abs(weightDifference3) < 0.002) {
             lc3ReferenceWeight = convertedLc3;
           }
 
           // [UPDATED BULK MULTIPLE CHECK BASED ON DIFFERENCE]
-          
           if (!lc3InvalidLatch && weightDifference3 > (target3 * 1.5)) {
             const addedPieces = Math.round(weightDifference3 / target3);
             const expectedAddedWeight = addedPieces * target3;
 
-           
             if (
               weightDifference3 < (expectedAddedWeight - tolerance3) || 
               weightDifference3 > (expectedAddedWeight + tolerance3)
             ) {
               lc3InvalidLatch = true;
-              lc3Status = "bulk_load_warning";
+              lc3Status = "CRITICAL QC ERROR"; // UPDATED STRING VALUE
             }
           }
 
-         
           if (!lc3InvalidLatch && lc3ReferenceWeight > 0) {
             const extraWeight = convertedLc3 - lc3ReferenceWeight;
             if (extraWeight >= 0.010 && extraWeight < (target3 - tolerance3)) {
@@ -134,7 +131,6 @@ app.get("/api/loadcells", async (req, res) => {
             }
           }
           
-         
           if (lc3InvalidLatch) {
             const remainingExtra = convertedLc3 - lc3ReferenceWeight;
 
@@ -142,9 +138,8 @@ app.get("/api/loadcells", async (req, res) => {
                 lc3InvalidLatch = false;
                 lc3Status = "nominal";
             } else {
-              
-              if (lc3Status === "bulk_load_warning") {
-                lc3Status = "bulk_load_warning";
+              if (lc3Status === "CRITICAL QC ERROR") {
+                lc3Status = "CRITICAL QC ERROR"; // UPDATED STRING VALUE
               } else {
                 lc3Status = "underweight_part_warning";
               }
@@ -154,7 +149,7 @@ app.get("/api/loadcells", async (req, res) => {
           }
           
           else if (weightDifference3 > (target3 * 1.5)) {
-            lc3Status = "nominal"; // ගුණාකාරය හරි නිසා nominal වේ
+            lc3Status = "nominal"; 
             lc3PartsCount = Math.round(convertedLc3 / target3);
           } else {
             const minSinglePartWeight3 = target3 - tolerance3;
@@ -175,7 +170,7 @@ app.get("/api/loadcells", async (req, res) => {
         }
 
         // ==========================================
-        // OUTPUT SCALE PROCESSING MATRIX (LC4)
+        // OUTPUT SCALE PROCESSING MATRIX (LC4) - නොකැඩූ පරණ ලොජික් එක
         // ==========================================
         const target4 = parseFloat(job.output_weight_one_part);
         const tolerance4 = parseFloat(job.output_tolerance);
@@ -245,7 +240,6 @@ app.get("/api/loadcells", async (req, res) => {
       }
     }
 
-   
     prevLc3Weight = convertedLc3;
     prevLc4Weight = convertedLc4;
 
